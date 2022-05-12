@@ -23,25 +23,23 @@ type LoginOptions struct {
 	userSpecifiedAuthInfo  string
 	userSpecifiedNamespace string
 
-	rawConfig      api.Config
-	listNamespaces bool
-	args           []string
+	userFlagUsed bool
 
-	genericclioptions.IOStreams
+	rawConfig    api.Config
+	listClusters bool
+	args         []string
 }
 
 // NewNamespaceOptions provides an instance of NamespaceOptions with default values
-func NewLoginOptions(streams genericclioptions.IOStreams) *LoginOptions {
+func NewLoginOptions() *LoginOptions {
 	return &LoginOptions{
 		configFlags: genericclioptions.NewConfigFlags(true),
-
-		IOStreams: streams,
 	}
 }
 
 // NewLogin provides a cobra command wrapping NamespaceOptions
-func NewLogin(streams genericclioptions.IOStreams) *cobra.Command {
-	o := NewLoginOptions(streams)
+func NewLogin() *cobra.Command {
+	o := NewLoginOptions()
 
 	cmd := &cobra.Command{
 		Use:          "login [new-namespace] [flags]",
@@ -68,7 +66,7 @@ func NewLogin(streams genericclioptions.IOStreams) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVar(&o.listNamespaces, "list", o.listNamespaces, "if true, print the list of all namespaces in the current KUBECONFIG")
+	cmd.Flags().BoolVarP(&o.listClusters, "list-clusters", "l", o.listClusters, "if true, print the list of all clusters in the current KUBECONFIG")
 	o.configFlags.AddFlags(cmd.Flags())
 
 	return cmd
@@ -99,6 +97,11 @@ func (o *LoginOptions) Complete(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	o.userSpecifiedNamespace, err = cmd.Flags().GetString("namespace")
+	if err != nil {
+		return err
+	}
+
 	currentContext, exists := o.rawConfig.Contexts[o.rawConfig.CurrentContext]
 	if !exists {
 		return errNoContext
@@ -107,6 +110,7 @@ func (o *LoginOptions) Complete(cmd *cobra.Command, args []string) error {
 	o.resultingContext = api.NewContext()
 	o.resultingContext.Cluster = currentContext.Cluster
 	o.resultingContext.AuthInfo = currentContext.AuthInfo
+	o.resultingContext.Namespace = currentContext.Namespace
 
 	// if a target context is explicitly provided by the user,
 	// use that as our reference for the final, resulting context
@@ -124,7 +128,11 @@ func (o *LoginOptions) Complete(cmd *cobra.Command, args []string) error {
 		o.resultingContext.Cluster = o.userSpecifiedCluster
 	}
 	if len(o.userSpecifiedAuthInfo) > 0 {
+		o.userFlagUsed = true
 		o.resultingContext.AuthInfo = o.userSpecifiedAuthInfo
+	}
+	if len(o.userSpecifiedNamespace) > 0 {
+		o.resultingContext.Namespace = o.userSpecifiedNamespace
 	}
 
 	return nil
@@ -139,6 +147,16 @@ func (o *LoginOptions) Validate() error {
 		return fmt.Errorf("no arguments are allowed")
 	}
 
+	// Capture Login Credentials Here:
+	user, pass := initLogin(o.resultingContext.AuthInfo, o.userFlagUsed)
+	fmt.Printf(">> USER: %q\n", user)
+	fmt.Printf(">> PASS: %q\n", pass)
+	switch "" {
+	case user:
+		return fmt.Errorf("empty username")
+	case pass:
+		return fmt.Errorf("empty password")
+	}
 	return nil
 }
 
@@ -168,6 +186,10 @@ func (o *LoginOptions) isContextEqual(ctxB *api.Context) bool {
 	}
 	if o.resultingContext.Cluster != ctxB.Cluster {
 		fmt.Println(2)
+		return false
+	}
+	if o.resultingContext.Namespace != ctxB.Namespace {
+		fmt.Println(3)
 		return false
 	}
 	if o.resultingContext.AuthInfo != ctxB.AuthInfo {

@@ -1,1 +1,3 @@
-bin/*
+cmd/bin/*
+cmd/goBuild.sh
+pkg/cmd/test.go

@@ -5,6 +5,7 @@ go 1.17
 require (
 	github.com/spf13/cobra v1.4.0
 	github.com/spf13/pflag v1.0.5
+	golang.org/x/crypto v0.0.0-20220214200702-86341886e292
 	k8s.io/cli-runtime v0.24.0
 	k8s.io/client-go v0.24.0
 )
