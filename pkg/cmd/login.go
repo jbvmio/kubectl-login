@@ -149,8 +149,6 @@ func (o *LoginOptions) Validate() error {
 
 	// Capture Login Credentials Here:
 	user, pass := initLogin(o.resultingContext.AuthInfo, o.userFlagUsed)
-	fmt.Printf(">> USER: %q\n", user)
-	fmt.Printf(">> PASS: %q\n", pass)
 	switch "" {
 	case user:
 		return fmt.Errorf("empty username")
