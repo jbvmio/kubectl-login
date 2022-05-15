@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/clientcmd/api"
 
 	"k8s.io/cli-runtime/pkg/genericclioptions"
@@ -22,6 +23,7 @@ type LoginOptions struct {
 	userSpecifiedContext   string
 	userSpecifiedAuthInfo  string
 	userSpecifiedNamespace string
+	userSpecifiedPassword  string
 
 	userFlagUsed bool
 
@@ -40,7 +42,6 @@ func NewLoginOptions() *LoginOptions {
 // NewLogin provides a cobra command wrapping NamespaceOptions
 func NewLogin() *cobra.Command {
 	o := NewLoginOptions()
-
 	cmd := &cobra.Command{
 		Use:          "login [new-namespace] [flags]",
 		Short:        "Login OIDC",
@@ -54,9 +55,8 @@ func NewLogin() *cobra.Command {
 				return err
 			}
 
-			fmt.Printf("Context:\n %+v\n", o.rawConfig.Contexts[o.resultingContextName])
-			fmt.Printf("api.Context:\n %+v\n", o.resultingContext)
-			fmt.Printf("rawConfig:\n %+v\n", o.rawConfig)
+			fmt.Printf(">>>> CONTEXT BEFORE:\n %+v\n", o.rawConfig.Contexts[o.resultingContextName])
+			fmt.Printf(">>>> RESULT CONTEXT BEFORE:\n %+v\n", o.resultingContext)
 
 			if err := o.Run(); err != nil {
 				return err
@@ -157,6 +157,8 @@ func (o *LoginOptions) Validate() error {
 	case pass:
 		return fmt.Errorf("empty password")
 	}
+	o.resultingContext.AuthInfo = user
+	o.userSpecifiedPassword = pass
 	return nil
 }
 
@@ -169,33 +171,50 @@ func (o *LoginOptions) login() error {
 
 	// determine if we have already saved this context to the user's KUBECONFIG before
 	// if so, simply switch the current context to the existing one.
+	fmt.Println()
 	if existingResultingCtx, exists := o.rawConfig.Contexts[o.resultingContextName]; !exists || !o.isContextEqual(existingResultingCtx) {
-		fmt.Println(">>HERE<<")
+		fmt.Println(">>CTX NOT EXISTS<<")
 		o.rawConfig.Contexts[o.resultingContextName] = o.resultingContext
+	} else {
+		fmt.Println(">>CTX EXISTS<<")
 	}
+	fmt.Println()
 	o.rawConfig.CurrentContext = o.resultingContextName
 
-	fmt.Printf(">>>>\nCONTEXT:\n %+v\n", o.rawConfig.Contexts[o.resultingContextName])
-	return nil
+	usr := o.resultingContext.AuthInfo
+	fmt.Printf(">>>> CONTEXT AT LOGIN:\n %+v\n", o.rawConfig.Contexts[o.resultingContextName])
+	fmt.Printf(">>>> RESULT CONTEXT AT LOGIN:\n %+v\n", o.resultingContext)
+	//fmt.Printf(">>>>\nCONFIG AT LOGIN:\n %+v\n", o.rawConfig)
+	usrAuth := &api.AuthInfo{}
+	if _, there := o.rawConfig.AuthInfos[usr]; there {
+		usrAuth = o.rawConfig.AuthInfos[usr]
+	}
+	authConfig := newAuthConfig()
+	err := startAuth(authConfig, o.resultingContext.AuthInfo, o.userSpecifiedPassword)
+	if err != nil {
+		return fmt.Errorf("error authenticating to oidc provider: %w", err)
+	}
+	usrAuth.AuthProvider = authConfig
+	fmt.Printf(">>>>\n%s USER:\n %+v\n", usr, usrAuth)
+
+	o.rawConfig.AuthInfos[usr] = usrAuth
+
+	configAccess := clientcmd.NewDefaultPathOptions()
+	return clientcmd.ModifyConfig(configAccess, o.rawConfig, true)
 }
 
 func (o *LoginOptions) isContextEqual(ctxB *api.Context) bool {
 	if o.resultingContext == nil || ctxB == nil {
-		fmt.Println(1)
 		return false
 	}
 	if o.resultingContext.Cluster != ctxB.Cluster {
-		fmt.Println(2)
 		return false
 	}
 	if o.resultingContext.Namespace != ctxB.Namespace {
-		fmt.Println(3)
 		return false
 	}
 	if o.resultingContext.AuthInfo != ctxB.AuthInfo {
-		fmt.Println(4)
 		return false
 	}
-	fmt.Println(5)
 	return true
 }

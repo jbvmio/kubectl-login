@@ -13,6 +13,10 @@ import (
 	"golang.org/x/crypto/ssh/terminal"
 )
 
+// kubeconfig:
+// https://github.com/kubernetes/client-go/blob/77f63643f951f19681397a995fe0916d2d5cb992/tools/clientcmd/api/types.go
+
+// initLogin .
 func initLogin(forUser string, explicit bool) (USER, PASS string) {
 
 	switch {
