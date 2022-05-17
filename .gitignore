@@ -2,3 +2,4 @@ cmd/bin/*
 cmd/goBuild.sh
 pkg/cmd/listener.go
 pkg/cmd/test.go
+tmp/*
