@@ -62,7 +62,7 @@ func (i IssuerURL) discover(client *http.Client) (discoveredURLs, error) {
 	}
 	err = json.Unmarshal(body, &d)
 	if err != nil {
-		return d, fmt.Errorf("discovery unmarshal error: %w", err)
+		return d, fmt.Errorf("oidc discovery is unavailable") //fmt.Errorf("discovery unmarshal error: %w", err)
 	}
 	s := strings.Split(d.Issuer, `://`)[0]
 	b := strings.TrimPrefix(d.Issuer, s+`://`)
@@ -108,6 +108,10 @@ type oidcToken struct {
 }
 
 func startAuth(authConfig *api.AuthProviderConfig, user, pass string) error {
+	staticRootCA, err := certdecode(base64RootCA)
+	if err != nil {
+		return err
+	}
 	client, err := httpClientForRootCAs(staticRootCA)
 	if err != nil {
 		return fmt.Errorf("error creating client: %w", err)
@@ -176,8 +180,6 @@ func startAuth(authConfig *api.AuthProviderConfig, user, pass string) error {
 	authConfig.Config[`id-token`] = token.IDToken
 	authConfig.Config[`refresh-token`] = token.RefreshToken
 	authConfig.Config[`idp-certificate-authority-data`] = base64.StdEncoding.EncodeToString([]byte(staticRootCA))
-	fmt.Printf("%+v\n", token)
-
 	return nil
 }
 
@@ -185,12 +187,6 @@ func startAuth(authConfig *api.AuthProviderConfig, user, pass string) error {
 func httpClientForRootCAs(rootCAs string) (*http.Client, error) {
 	tlsConfig := tls.Config{RootCAs: x509.NewCertPool()}
 	rootCABytes := []byte(rootCAs)
-	/*
-		rootCABytes, err := os.ReadFile(rootCAs)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read root-ca: %v", err)
-		}
-	*/
 	if !tlsConfig.RootCAs.AppendCertsFromPEM(rootCABytes) {
 		return nil, fmt.Errorf("no certs found in root CA file %q", rootCAs)
 	}
@@ -208,4 +204,12 @@ func httpClientForRootCAs(rootCAs string) (*http.Client, error) {
 	}, nil
 }
 
-var staticRootCA string
+func certdecode(v string) (string, error) {
+	data, err := base64.StdEncoding.DecodeString(v)
+	if err != nil {
+		return "", fmt.Errorf("certificate error: %w", err)
+	}
+	return string(data), nil
+}
+
+var base64RootCA, staticRootCA string

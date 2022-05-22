@@ -11,25 +11,38 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 )
 
+const defaultUser = `kubectl-login-user`
+
+var (
+	loginExample = `
+	# login interactively
+	%[1]s login
+	# login with username
+	%[1]s login --user <username>
+	# login using piped credentials
+	echo '<username>:<password>' | %[1]s login
+`
+
+	errNoContext = fmt.Errorf("no context is currently set, use %q to select a new one", "kubectl config use-context <context>")
+	buildTime    string
+	commitHash   string
+)
+
 // LoginOptions provides information required to log into
 // the current context on a user's KUBECONFIG
 type LoginOptions struct {
-	configFlags *genericclioptions.ConfigFlags
-
-	resultingContext     *api.Context
-	resultingContextName string
-
+	configFlags            *genericclioptions.ConfigFlags
+	resultingContext       *api.Context
+	resultingContextName   string
 	userSpecifiedCluster   string
 	userSpecifiedContext   string
 	userSpecifiedAuthInfo  string
 	userSpecifiedNamespace string
 	userSpecifiedPassword  string
-
-	userFlagUsed bool
-
-	rawConfig    api.Config
-	listClusters bool
-	args         []string
+	userFlagUsed           bool
+	rawConfig              api.Config
+	printVersion           bool
+	args                   []string
 }
 
 // NewNamespaceOptions provides an instance of NamespaceOptions with default values
@@ -45,19 +58,21 @@ func NewLogin() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:          "login [new-namespace] [flags]",
 		Short:        "Login OIDC",
-		Example:      fmt.Sprintf(namespaceExample, "kubectl"),
+		Example:      fmt.Sprintf(loginExample, "kubectl"),
 		SilenceUsage: true,
 		RunE: func(c *cobra.Command, args []string) error {
+			if o.printVersion {
+				fmt.Printf("kubectl-login : %s\n", `tools@etrade.com`)
+				fmt.Printf("Version       : %s\n", buildTime)
+				fmt.Printf("Commit        : %s\n", commitHash)
+				return nil
+			}
 			if err := o.Complete(c, args); err != nil {
 				return err
 			}
 			if err := o.Validate(); err != nil {
 				return err
 			}
-
-			fmt.Printf(">>>> CONTEXT BEFORE:\n %+v\n", o.rawConfig.Contexts[o.resultingContextName])
-			fmt.Printf(">>>> RESULT CONTEXT BEFORE:\n %+v\n", o.resultingContext)
-
 			if err := o.Run(); err != nil {
 				return err
 			}
@@ -65,10 +80,8 @@ func NewLogin() *cobra.Command {
 			return nil
 		},
 	}
-
-	cmd.Flags().BoolVarP(&o.listClusters, "list-clusters", "l", o.listClusters, "if true, print the list of all clusters in the current KUBECONFIG")
+	cmd.Flags().BoolVarP(&o.printVersion, "version", "v", o.printVersion, "Print Version and Exit")
 	o.configFlags.AddFlags(cmd.Flags())
-
 	return cmd
 }
 
@@ -155,6 +168,9 @@ func (o *LoginOptions) Validate() error {
 	case pass:
 		return fmt.Errorf("empty password")
 	}
+	if user == defaultUser {
+		return fmt.Errorf("error: can't use %q", defaultUser)
+	}
 	o.resultingContext.AuthInfo = user
 	o.userSpecifiedPassword = pass
 	return nil
@@ -166,23 +182,13 @@ func (o *LoginOptions) Run() error {
 }
 
 func (o *LoginOptions) login() error {
-
 	// determine if we have already saved this context to the user's KUBECONFIG before
 	// if so, simply switch the current context to the existing one.
-	fmt.Println()
 	if existingResultingCtx, exists := o.rawConfig.Contexts[o.resultingContextName]; !exists || !o.isContextEqual(existingResultingCtx) {
-		fmt.Println(">>CTX NOT EXISTS<<")
 		o.rawConfig.Contexts[o.resultingContextName] = o.resultingContext
-	} else {
-		fmt.Println(">>CTX EXISTS<<")
 	}
-	fmt.Println()
 	o.rawConfig.CurrentContext = o.resultingContextName
-
 	usr := o.resultingContext.AuthInfo
-	fmt.Printf(">>>> CONTEXT AT LOGIN:\n %+v\n", o.rawConfig.Contexts[o.resultingContextName])
-	fmt.Printf(">>>> RESULT CONTEXT AT LOGIN:\n %+v\n", o.resultingContext)
-	//fmt.Printf(">>>>\nCONFIG AT LOGIN:\n %+v\n", o.rawConfig)
 	usrAuth := &api.AuthInfo{}
 	if _, there := o.rawConfig.AuthInfos[usr]; there {
 		usrAuth = o.rawConfig.AuthInfos[usr]
@@ -193,11 +199,9 @@ func (o *LoginOptions) login() error {
 		return fmt.Errorf("error authenticating to oidc provider: %w", err)
 	}
 	usrAuth.AuthProvider = authConfig
-	fmt.Printf(">>>>\n%s USER:\n %+v\n", usr, usrAuth)
-
 	o.rawConfig.AuthInfos[usr] = usrAuth
-
 	configAccess := clientcmd.NewDefaultPathOptions()
+	removeDefaultUser(&o.rawConfig, usr)
 	return clientcmd.ModifyConfig(configAccess, o.rawConfig, true)
 }
 
@@ -215,4 +219,16 @@ func (o *LoginOptions) isContextEqual(ctxB *api.Context) bool {
 		return false
 	}
 	return true
+}
+
+func removeDefaultUser(config *api.Config, newUser string) {
+	if _, there := config.AuthInfos[defaultUser]; !there {
+		return
+	}
+	for ctx := range config.Contexts {
+		if config.Contexts[ctx].AuthInfo == defaultUser {
+			config.Contexts[ctx].AuthInfo = newUser
+		}
+	}
+	delete(config.AuthInfos, defaultUser)
 }

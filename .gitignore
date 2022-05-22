@@ -1,4 +1,5 @@
 cmd/bin/*
+cmd/rootCA.crt
 cmd/goBuild.sh
 pkg/cmd/listener.go
 pkg/cmd/test.go
