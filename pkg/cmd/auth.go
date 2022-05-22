@@ -21,10 +21,7 @@ const (
 	grantType         = `urn:ietf:params:oauth:grant-type:device_code`
 )
 
-var (
-	//issuerBaseURL = `http://127.0.0.1:5556/dex`
-	issuerBaseURL = `https://oidc.monitoring.uat.etrade.com`
-)
+var issuerBaseURL string
 
 func newAuthConfig() *api.AuthProviderConfig {
 	return &api.AuthProviderConfig{
