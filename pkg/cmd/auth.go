@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/clientcmd/api"
 )
 
@@ -21,9 +22,23 @@ const (
 	grantType         = `urn:ietf:params:oauth:grant-type:device_code`
 )
 
-var issuerBaseURL string
+func contextOIDCIssuer(cfg api.Config) (string, error) {
+	ext, there := cfg.Extensions[`oidcUrl`]
+	if !there {
+		return "", fmt.Errorf("error: oidcUrl extension missing")
+	}
+	var ctxUrls map[string]string
+	err := json.Unmarshal(ext.(*runtime.Unknown).Raw, &ctxUrls)
+	if err != nil {
+		return "", fmt.Errorf("oidcUrl Unmarshal error: %w", err)
+	}
+	if u, ok := ctxUrls[cfg.CurrentContext]; ok {
+		return u, nil
+	}
+	return ctxUrls[`default`], nil
+}
 
-func newAuthConfig() *api.AuthProviderConfig {
+func newAuthConfig(issuerURL string) *api.AuthProviderConfig {
 	return &api.AuthProviderConfig{
 		Name: `oidc`,
 		Config: map[string]string{
@@ -31,7 +46,7 @@ func newAuthConfig() *api.AuthProviderConfig {
 			`client-secret`:                  "",
 			`id-token`:                       "",
 			`idp-certificate-authority-data`: "",
-			`idp-issuer-url`:                 issuerBaseURL,
+			`idp-issuer-url`:                 issuerURL,
 			`refresh-token`:                  "",
 		},
 	}
@@ -104,7 +119,7 @@ type oidcToken struct {
 	ExpiresIn    int    `json:"expires_in"`
 }
 
-func startAuth(authConfig *api.AuthProviderConfig, user, pass string) error {
+func startAuth(authConfig *api.AuthProviderConfig, iURL, user, pass string) error {
 	staticRootCA, err := certdecode(base64RootCA)
 	if err != nil {
 		return err
@@ -113,7 +128,7 @@ func startAuth(authConfig *api.AuthProviderConfig, user, pass string) error {
 	if err != nil {
 		return fmt.Errorf("error creating client: %w", err)
 	}
-	I, err := IssuerURL(issuerBaseURL).discover(client)
+	I, err := IssuerURL(iURL).discover(client)
 	if err != nil {
 		return err
 	}

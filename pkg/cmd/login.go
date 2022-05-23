@@ -33,6 +33,7 @@ var (
 type LoginOptions struct {
 	configFlags            *genericclioptions.ConfigFlags
 	resultingContext       *api.Context
+	rawConfig              api.Config
 	resultingContextName   string
 	userSpecifiedCluster   string
 	userSpecifiedContext   string
@@ -40,7 +41,7 @@ type LoginOptions struct {
 	userSpecifiedNamespace string
 	userSpecifiedPassword  string
 	userFlagUsed           bool
-	rawConfig              api.Config
+	issuerBaseURL          string
 	printVersion           bool
 	args                   []string
 }
@@ -88,6 +89,9 @@ func NewLogin() *cobra.Command {
 // Complete sets all information required for updating the current context
 func (o *LoginOptions) Complete(cmd *cobra.Command, args []string) error {
 	o.args = args
+	if len(o.args) >= 1 {
+		return fmt.Errorf("no arguments are allowed")
+	}
 
 	var err error
 	o.rawConfig, err = o.configFlags.ToRawKubeConfigLoader().RawConfig()
@@ -156,9 +160,6 @@ func (o *LoginOptions) Validate() error {
 	if len(o.resultingContextName) == 0 {
 		return errNoContext
 	}
-	if len(o.args) >= 1 {
-		return fmt.Errorf("no arguments are allowed")
-	}
 
 	// Capture Login Credentials Here:
 	user, pass := initLogin(o.resultingContext.AuthInfo, o.userFlagUsed)
@@ -193,8 +194,15 @@ func (o *LoginOptions) login() error {
 	if _, there := o.rawConfig.AuthInfos[usr]; there {
 		usrAuth = o.rawConfig.AuthInfos[usr]
 	}
-	authConfig := newAuthConfig()
-	err := startAuth(authConfig, o.resultingContext.AuthInfo, o.userSpecifiedPassword)
+	U, err := contextOIDCIssuer(o.rawConfig)
+	switch {
+	case err != nil:
+		return err
+	case U == "":
+		return fmt.Errorf("empty oidc issuing url")
+	}
+	authConfig := newAuthConfig(U)
+	err = startAuth(authConfig, U, o.resultingContext.AuthInfo, o.userSpecifiedPassword)
 	if err != nil {
 		return fmt.Errorf("error authenticating to oidc provider: %w", err)
 	}
