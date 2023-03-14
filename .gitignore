@@ -1,6 +1,7 @@
 cmd/bin/*
 cmd/rootCA.crt
 cmd/goBuild.sh
+cmd/install.*
 pkg/cmd/listener.go
 pkg/cmd/test.go
 tmp/*

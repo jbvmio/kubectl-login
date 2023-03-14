@@ -224,4 +224,4 @@ func certdecode(v string) (string, error) {
 	return string(data), nil
 }
 
-var base64RootCA, staticRootCA string
+var base64RootCA string

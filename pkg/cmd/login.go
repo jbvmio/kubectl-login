@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"encoding/base64"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -160,9 +162,12 @@ func (o *LoginOptions) Validate() error {
 	if len(o.resultingContextName) == 0 {
 		return errNoContext
 	}
-
+	usr := o.resultingContext.AuthInfo
+	if strings.Contains(usr, `__`) {
+		usr = strings.Split(usr, `__`)[0]
+	}
 	// Capture Login Credentials Here:
-	user, pass := initLogin(o.resultingContext.AuthInfo, o.userFlagUsed)
+	user, pass := initLogin(usr, o.userFlagUsed)
 	switch "" {
 	case user:
 		return fmt.Errorf("empty username")
@@ -189,11 +194,6 @@ func (o *LoginOptions) login() error {
 		o.rawConfig.Contexts[o.resultingContextName] = o.resultingContext
 	}
 	o.rawConfig.CurrentContext = o.resultingContextName
-	usr := o.resultingContext.AuthInfo
-	usrAuth := &api.AuthInfo{}
-	if _, there := o.rawConfig.AuthInfos[usr]; there {
-		usrAuth = o.rawConfig.AuthInfos[usr]
-	}
 	U, err := contextOIDCIssuer(o.rawConfig)
 	switch {
 	case err != nil:
@@ -201,15 +201,31 @@ func (o *LoginOptions) login() error {
 	case U == "":
 		return fmt.Errorf("empty oidc issuing url")
 	}
+	U = strings.TrimSpace(U)
+	iHash := base64.StdEncoding.EncodeToString([]byte(U))
+
+	usr := o.resultingContext.AuthInfo
+	if strings.Contains(usr, `__`) {
+		usr = strings.Split(usr, `__`)[0]
+	}
+	usrClu := usr + `__` + iHash
+	o.rawConfig.Contexts[o.resultingContextName].AuthInfo = usrClu
+
+	usrAuth := &api.AuthInfo{}
+	if _, there := o.rawConfig.AuthInfos[usrClu]; there {
+		usrAuth = o.rawConfig.AuthInfos[usrClu]
+	}
+
 	authConfig := newAuthConfig(U)
-	err = startAuth(authConfig, U, o.resultingContext.AuthInfo, o.userSpecifiedPassword)
+	err = startAuth(authConfig, U, usr, o.userSpecifiedPassword)
 	if err != nil {
 		return fmt.Errorf("error authenticating to oidc provider: %w", err)
 	}
 	usrAuth.AuthProvider = authConfig
-	o.rawConfig.AuthInfos[usr] = usrAuth
+	o.rawConfig.AuthInfos[usrClu] = usrAuth
 	configAccess := clientcmd.NewDefaultPathOptions()
-	removeDefaultUser(&o.rawConfig, usr)
+	configAccess.LoadingRules.ExplicitPath = *o.configFlags.KubeConfig
+	removeDefaultUser(&o.rawConfig, usrClu)
 	return clientcmd.ModifyConfig(configAccess, o.rawConfig, true)
 }
 
